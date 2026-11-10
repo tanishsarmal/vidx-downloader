@@ -11,241 +11,274 @@ import yt_dlp
 import os
 import tempfile
 import shutil
-import logging
+import requests
 
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote
+from werkzeug.utils import secure_filename
 
-
-# =============================================
-# VIDX CONFIGURATION
-# =============================================
 
 app = Flask(__name__)
 
-logging.basicConfig(level=logging.INFO)
+# =====================================
+# VIDX CONFIGURATION
+# =====================================
 
-DOWNLOAD_FOLDER = os.path.join(
-    app.root_path,
-    "downloads"
-)
-
+DOWNLOAD_FOLDER = os.path.join(app.root_path, "downloads")
 os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 
-MAX_CONTENT_LENGTH = 500 * 1024 * 1024  # 500 MB
+MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
 
-
-# =============================================
-# SUPPORTED PLATFORMS
-# =============================================
-
-SUPPORTED_DOMAINS = {
-    "youtube.com",
-    "www.youtube.com",
-    "m.youtube.com",
-    "youtu.be",
-
-    "instagram.com",
-    "www.instagram.com",
-
-    "facebook.com",
-    "www.facebook.com",
-    "m.facebook.com",
-    "fb.watch",
-
-    "tiktok.com",
-    "www.tiktok.com",
-    "vm.tiktok.com",
-    "vt.tiktok.com"
+# Only explicitly trusted hosts for direct MP4 links.
+DIRECT_VIDEO_HOSTS = {
+    "samplelib.com",
+    "www.samplelib.com",
+    "storage.googleapis.com"
 }
 
 
-# =============================================
+# =====================================
 # URL VALIDATION
-# =============================================
+# =====================================
 
-def is_valid_video_url(url):
-
+def get_url_type(url):
     try:
         parsed = urlparse(url)
 
-        if parsed.scheme != "https":
-            return False
+        if parsed.scheme != "https" or not parsed.hostname:
+            return None
 
-        hostname = (parsed.hostname or "").lower()
+        host = parsed.hostname.lower()
 
-        return hostname in SUPPORTED_DOMAINS
+        youtube_hosts = {
+            "youtube.com",
+            "www.youtube.com",
+            "m.youtube.com",
+            "youtu.be"
+        }
+
+        if host in youtube_hosts:
+            return "youtube"
+
+        if (
+            host in DIRECT_VIDEO_HOSTS
+            and parsed.path.lower().endswith(".mp4")
+            and not parsed.username
+            and not parsed.password
+        ):
+            return "direct"
+
+        return None
 
     except Exception:
-        return False
+        return None
 
 
-# =============================================
-# PLATFORM DETECTION
-# =============================================
+# =====================================
+# DIRECT MP4 INFORMATION
+# =====================================
 
-def detect_platform(url):
+def get_direct_video_info(url):
+    response = requests.get(
+        url,
+        stream=True,
+        timeout=(10, 20),
+        allow_redirects=False,
+        headers={"User-Agent": "VidX/1.0"}
+    )
 
-    hostname = urlparse(url).hostname or ""
+    try:
+        if response.status_code != 200:
+            raise ValueError("Direct video URL is unavailable.")
 
-    if "youtube" in hostname or hostname == "youtu.be":
-        return "YouTube"
+        content_type = response.headers.get(
+            "Content-Type", ""
+        ).lower()
 
-    if "instagram" in hostname:
-        return "Instagram"
+        if "video/mp4" not in content_type:
+            raise ValueError("URL does not serve an MP4 video.")
 
-    if "facebook" in hostname or hostname == "fb.watch":
-        return "Facebook"
+        content_length = int(
+            response.headers.get("Content-Length", 0)
+        )
 
-    if "tiktok" in hostname:
-        return "TikTok"
+        if content_length > MAX_FILE_SIZE:
+            raise ValueError("Video exceeds the 100 MB limit.")
 
-    return "Unknown"
+        filename = os.path.basename(
+            unquote(urlparse(url).path)
+        )
+
+        filename = secure_filename(filename) or "VidX_Video.mp4"
+
+        return {
+            "success": True,
+            "title": filename,
+            "thumbnail": "",
+            "duration": "Unknown",
+            "qualities": [360, 480, 720, 1080],
+            "source": "direct"
+        }
+
+    finally:
+        response.close()
 
 
-# =============================================
-# YT-DLP COMMON OPTIONS
-# =============================================
-
-def get_common_options():
-
-    return {
-        "quiet": True,
-        "no_warnings": True,
-        "noplaylist": True,
-        "socket_timeout": 20,
-        "retries": 2,
-        "restrictfilenames": True
-    }
-
-
-# =============================================
+# =====================================
 # HOME PAGE
-# =============================================
+# =====================================
 
 @app.route("/")
 def home():
-
     return render_template("index.html")
 
 
-# =============================================
+# =====================================
 # HEALTH CHECK
-# =============================================
+# =====================================
 
 @app.route("/healthz")
 def health_check():
-
     return jsonify({
-        "status": "healthy",
-        "app": "VidX Downloader"
-    }), 200
+        "app": "VidX Downloader",
+        "status": "healthy"
+    })
 
 
-# =============================================
+# =====================================
 # VIDEO INFORMATION API
-# =============================================
+# =====================================
 
 @app.route("/api/info", methods=["POST"])
 def video_info():
 
     data = request.get_json(silent=True) or {}
-
     url = data.get("url", "").strip()
 
-    if not is_valid_video_url(url):
+    url_type = get_url_type(url)
 
+    if not url_type:
         return jsonify({
             "error": "Unsupported or invalid video URL."
         }), 400
 
     try:
 
-        options = get_common_options()
+        if url_type == "direct":
+            return jsonify(get_direct_video_info(url))
 
-        options.update({
-            "skip_download": True
-        })
+        options = {
+            "quiet": True,
+            "no_warnings": True,
+            "skip_download": True,
+            "noplaylist": True
+        }
 
         with yt_dlp.YoutubeDL(options) as ydl:
-
-            info = ydl.extract_info(
-                url,
-                download=False
-            )
-
-        # Duration
+            info = ydl.extract_info(url, download=False)
 
         duration = info.get("duration")
 
         if duration is not None:
-
-            minutes, seconds = divmod(
-                int(duration), 60
-            )
-
-            hours, minutes = divmod(
-                minutes, 60
-            )
+            minutes, seconds = divmod(int(duration), 60)
+            hours, minutes = divmod(minutes, 60)
 
             duration_text = (
                 f"{hours}:{minutes:02}:{seconds:02}"
                 if hours
                 else f"{minutes}:{seconds:02}"
             )
-
         else:
-
             duration_text = "Unknown"
 
-        # Available qualities
-
-        available_qualities = sorted({
-
+        qualities = sorted({
             int(item["height"])
-
             for item in info.get("formats", [])
-
             if item.get("height")
             and item.get("vcodec") != "none"
-
         }, reverse=True)
 
         return jsonify({
-
             "success": True,
-
             "title": info.get("title", "Unknown"),
-
             "thumbnail": info.get("thumbnail", ""),
-
             "duration": duration_text,
-
-            "qualities": available_qualities,
-
-            "platform": detect_platform(url)
-
+            "qualities": qualities,
+            "source": "youtube"
         })
 
-    except Exception:
-
-        app.logger.exception(
-            "Video information fetch failed"
-        )
+    except Exception as error:
+        print("Video information error:", error)
 
         return jsonify({
-
-            "error": (
-                "Video information could not be fetched. "
-                "The video may be unavailable or the platform "
-                "may require an unsupported access method."
-            )
-
+            "error": "Video information fetch nahi ho payi."
         }), 400
 
 
-# =============================================
+# =====================================
+# DIRECT MP4 DOWNLOAD
+# =====================================
+
+def download_direct_mp4(url, temp_folder):
+
+    response = requests.get(
+        url,
+        stream=True,
+        timeout=(10, 30),
+        allow_redirects=False,
+        headers={"User-Agent": "VidX/1.0"}
+    )
+
+    if response.status_code != 200:
+        response.close()
+        raise ValueError("Unable to access the MP4 file.")
+
+    content_type = response.headers.get(
+        "Content-Type", ""
+    ).lower()
+
+    if "video/mp4" not in content_type:
+        response.close()
+        raise ValueError("URL is not a valid MP4 video.")
+
+    content_length = int(
+        response.headers.get("Content-Length", 0)
+    )
+
+    if content_length > MAX_FILE_SIZE:
+        response.close()
+        raise ValueError("Maximum download size is 100 MB.")
+
+    filename = os.path.basename(
+        unquote(urlparse(url).path)
+    )
+
+    filename = secure_filename(filename) or "VidX_Video.mp4"
+
+    file_path = os.path.join(temp_folder, filename)
+    downloaded = 0
+
+    try:
+        with open(file_path, "wb") as file:
+            for chunk in response.iter_content(chunk_size=64 * 1024):
+                if not chunk:
+                    continue
+
+                downloaded += len(chunk)
+
+                if downloaded > MAX_FILE_SIZE:
+                    raise ValueError("Maximum download size is 100 MB.")
+
+                file.write(chunk)
+
+    finally:
+        response.close()
+
+    return file_path
+
+
+# =====================================
 # VIDEO / AUDIO DOWNLOAD API
-# =============================================
+# =====================================
 
 @app.route("/api/download", methods=["POST"])
 def download_video():
@@ -253,185 +286,118 @@ def download_video():
     data = request.get_json(silent=True) or {}
 
     url = data.get("url", "").strip()
+    quality = str(data.get("quality", "720")).strip()
+    file_format = data.get("format", "mp4").lower()
 
-    quality = str(
-        data.get("quality", "720")
-    ).strip()
+    url_type = get_url_type(url)
 
-    file_format = str(
-        data.get("format", "mp4")
-    ).lower().strip()
-
-
-    # Validate URL
-
-    if not is_valid_video_url(url):
-
+    if not url_type:
         return jsonify({
             "error": "Unsupported or invalid video URL."
         }), 400
 
-
-    # Validate quality
-
-    allowed_qualities = [
-        "360",
-        "480",
-        "720",
-        "1080"
-    ]
-
-    if quality not in allowed_qualities:
-
+    if quality not in ["360", "480", "720", "1080"]:
         return jsonify({
             "error": "Invalid video quality."
         }), 400
 
-
-    # Validate format
-
     if file_format not in ["mp4", "mp3"]:
-
         return jsonify({
             "error": "Invalid file format."
         }), 400
 
-
-    # Create temporary folder
+    # Direct MP4 links
+    if url_type == "direct" and file_format == "mp3":
+        return jsonify({
+            "error": "MP3 conversion is currently available only for YouTube URLs."
+        }), 400
 
     temp_folder = tempfile.mkdtemp(
         prefix="vidx_",
         dir=DOWNLOAD_FOLDER
     )
 
-
-    # Common options
-
-    options = get_common_options()
-
-    options.update({
-
-        "outtmpl": os.path.join(
-            temp_folder,
-            "%(title).150s.%(ext)s"
-        ),
-
-        "max_filesize": MAX_CONTENT_LENGTH
-
-    })
-
-
-    # MP4 FORMAT
-
-    if file_format == "mp4":
-
-        options.update({
-
-            "format": (
-                f"bestvideo[height<={quality}][ext=mp4]+"
-                f"bestaudio[ext=m4a]/"
-                f"best[height<={quality}][ext=mp4]/"
-                f"best[height<={quality}]/best"
-            ),
-
-            "merge_output_format": "mp4"
-
-        })
-
-
-    # MP3 FORMAT
-
-    else:
-
-        options.update({
-
-            "format": "bestaudio/best",
-
-            "postprocessors": [{
-
-                "key": "FFmpegExtractAudio",
-
-                "preferredcodec": "mp3",
-
-                "preferredquality": "192"
-
-            }]
-
-        })
-
-
     try:
 
-        # Download video/audio
+        if url_type == "direct":
 
-        with yt_dlp.YoutubeDL(options) as ydl:
-
-            ydl.download([url])
-
-
-        # Find downloaded file
-
-        downloaded_files = [
-
-            os.path.join(temp_folder, name)
-
-            for name in os.listdir(temp_folder)
-
-            if not name.endswith(
-                (".part", ".ytdl")
+            file_path = download_direct_mp4(
+                url,
+                temp_folder
             )
 
-            and os.path.isfile(
+        else:
+
+            if file_format == "mp4":
+
+                format_selector = (
+                    f"bestvideo[height<={quality}][ext=mp4]+bestaudio[ext=m4a]/"
+                    f"best[height<={quality}][ext=mp4]/"
+                    f"best[height<={quality}]"
+                )
+
+                options = {
+                    "format": format_selector,
+                    "outtmpl": os.path.join(
+                        temp_folder,
+                        "%(title)s.%(ext)s"
+                    ),
+                    "merge_output_format": "mp4",
+                    "quiet": True,
+                    "no_warnings": True,
+                    "noplaylist": True
+                }
+
+            else:
+
+                options = {
+                    "format": "bestaudio/best",
+                    "outtmpl": os.path.join(
+                        temp_folder,
+                        "%(title)s.%(ext)s"
+                    ),
+                    "quiet": True,
+                    "no_warnings": True,
+                    "noplaylist": True,
+                    "postprocessors": [{
+                        "key": "FFmpegExtractAudio",
+                        "preferredcodec": "mp3",
+                        "preferredquality": "192"
+                    }]
+                }
+
+            with yt_dlp.YoutubeDL(options) as ydl:
+                ydl.download([url])
+
+            downloaded_files = [
                 os.path.join(temp_folder, name)
-            )
+                for name in os.listdir(temp_folder)
+                if not name.endswith((".part", ".ytdl"))
+            ]
 
-        ]
+            if not downloaded_files:
+                raise ValueError("Downloaded file not found.")
 
-
-        if not downloaded_files:
-
-            raise Exception(
-                "Downloaded file not found."
-            )
-
-
-        file_path = downloaded_files[0]
-
-
-        # Send file
+            file_path = downloaded_files[0]
 
         response = send_file(
-
             file_path,
-
             as_attachment=True,
-
-            download_name=os.path.basename(
-                file_path
-            )
-
+            download_name=os.path.basename(file_path)
         )
 
-
-        # Cleanup after response
-
         response.call_on_close(
-
             lambda: shutil.rmtree(
                 temp_folder,
                 ignore_errors=True
             )
-
         )
 
         return response
 
+    except Exception as error:
 
-    except Exception:
-
-        app.logger.exception(
-            "Video download failed"
-        )
+        print("Download error:", error)
 
         shutil.rmtree(
             temp_folder,
@@ -439,23 +405,13 @@ def download_video():
         )
 
         return jsonify({
-
-            "error": (
-                "Download failed. Check video availability, "
-                "platform permissions, quality and FFmpeg."
-            )
-
+            "error": str(error)
         }), 400
 
 
-# =============================================
-# APPLICATION START
-# =============================================
+# =====================================
+# RUN APPLICATION
+# =====================================
 
 if __name__ == "__main__":
-
-    app.run(
-        host="0.0.0.0",
-        port=int(os.environ.get("PORT", 5000)),
-        debug=False
-    )
+    app.run(debug=True)
