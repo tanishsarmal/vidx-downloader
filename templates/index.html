@@ -1,0 +1,380 @@
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>VidX - Video Downloader</title>
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+
+    <!-- NAVBAR -->
+
+    <nav class="navbar">
+
+        <div class="logo">Vid<span>X</span></div>
+
+        <div class="nav-links">
+            <a href="#">Home</a>
+            <a href="#history">History</a>
+            <a href="#statistics">Statistics</a>
+            <a href="#features">Features</a>
+            <a href="#about">About</a>
+        </div>
+
+    </nav>
+
+
+    <!-- HERO SECTION -->
+
+    <section class="hero">
+
+        <div class="hero-badge">
+            ✦ YOUR VIDEO TOOLKIT
+        </div>
+
+        <h1>
+            Download Videos<br>
+            <span>Your Way.</span>
+        </h1>
+
+        <p>
+            A simple and modern video toolkit.
+            Paste your video URL and get started.
+        </p>
+
+    </section>
+
+
+    <!-- DOWNLOAD SECTION -->
+
+    <section class="download-section">
+
+        <div class="download-card">
+
+            <h2>Video Downloader</h2>
+
+            <p>Paste your video URL below</p>
+
+            <!-- VIDEO URL -->
+
+            <div class="input-box">
+
+                <input
+                    type="url"
+                    id="videoUrl"
+                    placeholder="Paste video URL here..."
+                >
+
+                <button id="fetchBtn" onclick="fetchVideo()">
+                    Fetch Video →
+                </button>
+
+            </div>
+
+            <div id="message"></div>
+
+
+            <!-- VIDEO PREVIEW -->
+
+            <div id="videoPreview" class="video-preview">
+
+                <div class="video-main">
+
+                    <img
+                        id="thumbnail"
+                        src=""
+                        alt="Video Thumbnail"
+                    >
+
+                    <div class="video-info">
+
+                        <h3 id="videoTitle"></h3>
+
+                        <p id="videoDuration"></p>
+
+                    </div>
+
+                </div>
+
+
+                <!-- DOWNLOAD OPTIONS -->
+
+                <div class="download-options">
+
+                    <h3>Download Settings</h3>
+
+                    <!-- QUALITY AND FORMAT -->
+
+                    <div class="option-row">
+
+                        <div class="option-group">
+
+                            <label for="quality">
+                                Select Quality
+                            </label>
+
+                            <select id="quality" disabled>
+
+                                <option value="">
+                                    Fetch video first
+                                </option>
+
+                            </select>
+
+                        </div>
+
+
+                        <div class="option-group">
+
+                            <label for="format">
+                                Select Format
+                            </label>
+
+                            <select id="format">
+
+                                <option value="mp4">
+                                    MP4 Video
+                                </option>
+
+                                <option value="mp3">
+                                    MP3 Audio
+                                </option>
+
+                            </select>
+
+                        </div>
+
+                    </div>
+
+
+                    <!-- DOWNLOAD BUTTON -->
+
+                    <button
+                        id="downloadBtn"
+                        onclick="startDownload()"
+                    >
+                        Download Now ↓
+                    </button>
+
+                    <p id="downloadMessage"></p>
+
+
+                    <!-- DOWNLOAD PROGRESS -->
+
+                    <div
+                        class="progress-container"
+                        id="progressContainer"
+                    >
+
+                        <div class="progress-info">
+
+                            <span>Download Progress</span>
+
+                            <span id="progressPercent">0%</span>
+
+                        </div>
+
+                        <div class="progress-track">
+
+                            <div
+                                class="progress-fill"
+                                id="progressFill"
+                            ></div>
+
+                        </div>
+
+                    </div>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </section>
+
+
+    <!-- DOWNLOAD HISTORY -->
+
+    <section class="history-section" id="history">
+
+        <div class="history-card">
+
+            <div class="history-header">
+
+                <div>
+                    <h2>Download History</h2>
+                    <p>Your recently downloaded files</p>
+                </div>
+
+                <button
+                    id="clearHistoryBtn"
+                    class="clear-history-btn"
+                    onclick="clearHistory()"
+                >
+                    Clear History
+                </button>
+
+            </div>
+
+
+            <div id="historyList">
+
+                <div class="empty-history">
+
+                    <span>📂</span>
+
+                    <p>No downloads yet</p>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </section>
+
+
+    <!-- DOWNLOAD STATISTICS -->
+
+    <section class="stats-section" id="statistics">
+
+        <div class="stats-container">
+
+            <div class="stats-heading">
+
+                <span>YOUR ACTIVITY</span>
+
+                <h2>Download Statistics</h2>
+
+                <p>
+                    Track your download activity with VidX.
+                </p>
+
+            </div>
+
+
+            <div class="stats-grid">
+
+                <!-- TOTAL DOWNLOADS -->
+
+                <div class="stat-card">
+
+                    <div class="stat-icon">📥</div>
+
+                    <h3 id="totalDownloads">0</h3>
+
+                    <p>Total Downloads</p>
+
+                </div>
+
+
+                <!-- MP4 DOWNLOADS -->
+
+                <div class="stat-card">
+
+                    <div class="stat-icon">🎬</div>
+
+                    <h3 id="mp4Downloads">0</h3>
+
+                    <p>MP4 Downloads</p>
+
+                </div>
+
+
+                <!-- MP3 DOWNLOADS -->
+
+                <div class="stat-card">
+
+                    <div class="stat-icon">🎵</div>
+
+                    <h3 id="mp3Downloads">0</h3>
+
+                    <p>MP3 Downloads</p>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </section>
+
+
+    <!-- FEATURES -->
+
+    <section class="features" id="features">
+
+        <h2>Why Choose VidX?</h2>
+
+        <div class="feature-container">
+
+            <div class="feature-card">
+
+                <h3>⚡ Simple</h3>
+
+                <p>Easy-to-use interface.</p>
+
+            </div>
+
+
+            <div class="feature-card">
+
+                <h3>🎬 Video Preview</h3>
+
+                <p>Preview video information.</p>
+
+            </div>
+
+
+            <div class="feature-card">
+
+                <h3>📱 Responsive</h3>
+
+                <p>Works on desktop and mobile.</p>
+
+            </div>
+
+        </div>
+
+    </section>
+
+
+    <!-- ABOUT -->
+
+    <section class="about" id="about">
+
+        <h2>About VidX</h2>
+
+        <p>
+            VidX is a modern video utility website
+            designed for a simple and smooth experience.
+
+            Use it only with content you own or have permission to download.
+        </p>
+
+    </section>
+
+
+    <!-- FOOTER -->
+
+    <footer>
+
+        <p>© 2026 VidX. All Rights Reserved.</p>
+
+    </footer>
+
+
+    <!-- JAVASCRIPT -->
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+
+</body>
+
+</html>
