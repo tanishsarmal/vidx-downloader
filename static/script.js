@@ -1,7 +1,7 @@
 
 // =============================================
 // VIDX - PREMIUM VIDEO DOWNLOADER
-// COMPLETE JAVASCRIPT
+// COMPLETE UPDATED JAVASCRIPT
 // =============================================
 
 
@@ -12,12 +12,14 @@
 const videoUrl = document.getElementById("videoUrl");
 const fetchBtn = document.getElementById("fetchBtn");
 const downloadBtn = document.getElementById("downloadBtn");
-
 const message = document.getElementById("message");
 const downloadMessage = document.getElementById("downloadMessage");
 
 const HISTORY_KEY = "vidx_download_history";
 const THEME_KEY = "vidx_theme";
+
+// Successfully fetched URL
+let fetchedVideoUrl = null;
 
 
 // =============================================
@@ -59,7 +61,6 @@ function setButtonLoading(button, loading, text) {
             ${text}
         `;
     } else {
-        button.disabled = false;
         button.classList.remove("loading");
 
         if (button.dataset.originalText) {
@@ -70,17 +71,67 @@ function setButtonLoading(button, loading, text) {
 
 
 // =============================================
+// CLEAR OLD VIDEO INFORMATION
+// =============================================
+
+function clearVideoPreview() {
+
+    fetchedVideoUrl = null;
+
+    const preview = document.getElementById("videoPreview");
+    const title = document.getElementById("videoTitle");
+    const duration = document.getElementById("videoDuration");
+    const thumbnail = document.getElementById("thumbnail");
+    const quality = document.getElementById("quality");
+
+    if (preview) {
+        preview.style.display = "none";
+    }
+
+    if (title) {
+        title.textContent = "";
+    }
+
+    if (duration) {
+        duration.textContent = "";
+    }
+
+    if (thumbnail) {
+        thumbnail.removeAttribute("src");
+        thumbnail.alt = "Video Thumbnail";
+    }
+
+    if (quality) {
+        quality.innerHTML = "";
+        quality.disabled = true;
+    }
+
+    if (downloadBtn) {
+        downloadBtn.disabled = true;
+    }
+}
+
+
+// =============================================
 // FETCH VIDEO INFORMATION
 // =============================================
 
 async function fetchVideo() {
+
     const url = videoUrl.value.trim();
 
     clearStatus(message);
     clearStatus(downloadMessage);
 
+    // Clear previous video information
+    clearVideoPreview();
+
     if (!url) {
-        showStatus(message, "Please enter a video URL.", "error");
+        showStatus(
+            message,
+            "Please enter a video URL.",
+            "error"
+        );
         return;
     }
 
@@ -93,28 +144,54 @@ async function fetchVideo() {
     );
 
     try {
+
         const response = await fetch("/api/info", {
             method: "POST",
+
             headers: {
                 "Content-Type": "application/json"
             },
+
             body: JSON.stringify({ url })
         });
 
         const data = await response.json();
 
-        if (!response.ok) {
-            throw new Error(data.error || "Unable to fetch video.");
+        if (!response.ok || !data.success) {
+            throw new Error(
+                data.error || "Unable to fetch video information."
+            );
         }
+
+
+        // VIDEO TITLE
 
         document.getElementById("videoTitle").textContent =
             data.title || "Unknown";
 
+
+        // VIDEO DURATION
+
         document.getElementById("videoDuration").textContent =
             data.duration || "Unknown";
 
-        document.getElementById("thumbnail").src =
-            data.thumbnail || "";
+
+        // VIDEO THUMBNAIL
+
+        const thumbnail = document.getElementById("thumbnail");
+
+        if (data.thumbnail) {
+
+            thumbnail.src = data.thumbnail;
+            thumbnail.alt = "Video Thumbnail";
+
+        } else {
+
+            thumbnail.removeAttribute("src");
+            thumbnail.alt = "Thumbnail unavailable";
+
+        }
+
 
         // QUALITY OPTIONS
 
@@ -133,24 +210,37 @@ async function fetchVideo() {
         }
 
         availableQualities.forEach(quality => {
+
             const option = document.createElement("option");
 
             option.value = quality;
             option.textContent = `${quality}p`;
 
             qualitySelect.appendChild(option);
+
         });
 
-        qualitySelect.value =
-            availableQualities.includes(720)
-                ? "720"
-                : String(Math.max(...availableQualities));
+        qualitySelect.value = availableQualities.includes(720)
+            ? "720"
+            : String(Math.max(...availableQualities));
 
         qualitySelect.disabled = false;
+
+
+        // SAVE SUCCESSFULLY FETCHED URL
+
+        fetchedVideoUrl = url;
+
 
         // SHOW VIDEO PREVIEW
 
         document.getElementById("videoPreview").style.display = "block";
+
+
+        // ENABLE DOWNLOAD BUTTON
+
+        downloadBtn.disabled = false;
+
 
         showStatus(
             message,
@@ -159,14 +249,21 @@ async function fetchVideo() {
         );
 
     } catch (error) {
+
+        // Remove old or partial video information
+
+        clearVideoPreview();
+
         showStatus(
             message,
-            error.message || "Something went wrong.",
+            error.message || "Unable to fetch video. Please try again.",
             "error"
         );
 
     } finally {
+
         setButtonLoading(fetchBtn, false);
+
     }
 }
 
@@ -176,25 +273,56 @@ async function fetchVideo() {
 // =============================================
 
 async function startDownload() {
+
     const url = videoUrl.value.trim();
 
     const quality = document.getElementById("quality").value;
+
     const format = document.getElementById("format").value;
 
     clearStatus(downloadMessage);
 
+
+    // URL VALIDATION
+
     if (!url) {
-        showStatus(downloadMessage, "Please enter a video URL.", "error");
+
+        showStatus(
+            downloadMessage,
+            "Please enter a video URL.",
+            "error"
+        );
+
         return;
     }
 
-    setButtonLoading(downloadBtn, true, "Preparing download...");
+
+    // CHECK WHETHER VIDEO WAS SUCCESSFULLY FETCHED
+
+    if (!fetchedVideoUrl || fetchedVideoUrl !== url) {
+
+        showStatus(
+            downloadMessage,
+            "Please fetch valid video information before downloading.",
+            "error"
+        );
+
+        return;
+    }
+
+
+    setButtonLoading(
+        downloadBtn,
+        true,
+        "Preparing download..."
+    );
 
     showStatus(
         downloadMessage,
         "Your download is being prepared...",
         "loading"
     );
+
 
     const progressContainer =
         document.getElementById("progressContainer");
@@ -204,6 +332,7 @@ async function startDownload() {
 
     const progressPercent =
         document.getElementById("progressPercent");
+
 
     if (progressContainer) {
         progressContainer.style.display = "block";
@@ -217,29 +346,44 @@ async function startDownload() {
         progressPercent.textContent = "0%";
     }
 
+
     try {
+
         const response = await fetch("/api/download", {
+
             method: "POST",
+
             headers: {
                 "Content-Type": "application/json"
             },
+
             body: JSON.stringify({
                 url,
                 quality,
                 format
             })
+
         });
 
+
+        // DOWNLOAD ERROR HANDLING
+
         if (!response.ok) {
+
             let errorMessage = "Download failed.";
 
             try {
+
                 const errorData = await response.json();
+
                 errorMessage = errorData.error || errorMessage;
+
             } catch (_) {}
 
             throw new Error(errorMessage);
+
         }
+
 
         showStatus(
             downloadMessage,
@@ -247,26 +391,36 @@ async function startDownload() {
             "loading"
         );
 
+
+        // DOWNLOAD SIZE
+
         const totalSize = Number(
             response.headers.get("Content-Length")
         );
 
+
         const reader = response.body.getReader();
+
         const chunks = [];
 
         let receivedSize = 0;
 
+
         // READ DOWNLOAD STREAM
 
         while (true) {
+
             const { done, value } = await reader.read();
 
             if (done) break;
 
             chunks.push(value);
+
             receivedSize += value.length;
 
+
             if (totalSize > 0) {
+
                 const percent = Math.min(
                     99,
                     Math.round((receivedSize / totalSize) * 100)
@@ -279,14 +433,22 @@ async function startDownload() {
                 if (progressPercent) {
                     progressPercent.textContent = `${percent}%`;
                 }
+
             }
+
         }
+
 
         // CREATE FILE
 
         const blob = new Blob(chunks, {
-            type: format === "mp3" ? "audio/mpeg" : "video/mp4"
+
+            type: format === "mp3"
+                ? "audio/mpeg"
+                : "video/mp4"
+
         });
+
 
         // GET FILENAME
 
@@ -301,6 +463,7 @@ async function startDownload() {
             ? filenameMatch[1]
             : `VidX_Download.${format}`;
 
+
         // DOWNLOAD FILE
 
         const downloadUrl = URL.createObjectURL(blob);
@@ -308,15 +471,22 @@ async function startDownload() {
         const link = document.createElement("a");
 
         link.href = downloadUrl;
+
         link.download = filename;
 
         document.body.appendChild(link);
+
         link.click();
+
         link.remove();
 
+
         setTimeout(() => {
+
             URL.revokeObjectURL(downloadUrl);
+
         }, 1000);
+
 
         // COMPLETE PROGRESS
 
@@ -328,17 +498,21 @@ async function startDownload() {
             progressPercent.textContent = "100%";
         }
 
+
         showStatus(
             downloadMessage,
             "Download completed successfully!",
             "success"
         );
 
+
         // SAVE DOWNLOAD HISTORY
 
         saveDownloadHistory(filename, format);
 
+
     } catch (error) {
+
         showStatus(
             downloadMessage,
             error.message || "Download failed. Please try again.",
@@ -346,8 +520,11 @@ async function startDownload() {
         );
 
     } finally {
+
         setButtonLoading(downloadBtn, false);
+
     }
+
 }
 
 
@@ -355,30 +532,42 @@ async function startDownload() {
 // DOWNLOAD HISTORY SYSTEM
 // =============================================
 
+
 // GET HISTORY
 
 function getDownloadHistory() {
+
     try {
+
         return JSON.parse(
             localStorage.getItem(HISTORY_KEY)
         ) || [];
 
     } catch (error) {
+
         return [];
+
     }
+
 }
 
 
 // SAVE DOWNLOAD
 
 function saveDownloadHistory(filename, format) {
+
     const history = getDownloadHistory();
 
     const item = {
+
         id: Date.now(),
+
         filename: filename,
+
         format: format.toUpperCase(),
+
         date: new Date().toLocaleString()
+
     };
 
     history.unshift(item);
@@ -389,12 +578,14 @@ function saveDownloadHistory(filename, format) {
     );
 
     renderDownloadHistory();
+
 }
 
 
 // DISPLAY HISTORY
 
 function renderDownloadHistory() {
+
     const historyList = document.getElementById("historyList");
 
     if (!historyList) return;
@@ -403,58 +594,95 @@ function renderDownloadHistory() {
 
     historyList.innerHTML = "";
 
+
     if (history.length === 0) {
+
         historyList.innerHTML = `
+
             <div class="empty-history">
+
                 <span>📂</span>
-                <p>No downloads yet. Your download history will appear here.</p>
+
+                <p>
+                    No downloads yet. Your download history will appear here.
+                </p>
+
             </div>
+
         `;
 
         return;
+
     }
 
+
     history.forEach(item => {
+
         const historyItem = document.createElement("div");
+
         historyItem.className = "history-item";
 
+
         const fileContainer = document.createElement("div");
+
         fileContainer.className = "history-file";
 
+
         const icon = document.createElement("span");
+
         icon.className = "history-icon";
+
         icon.textContent = item.format === "MP3" ? "🎵" : "🎬";
 
+
         const details = document.createElement("div");
+
         details.className = "history-details";
 
+
         const title = document.createElement("h4");
+
         title.textContent = item.filename;
 
+
         const date = document.createElement("p");
+
         date.textContent = item.date;
 
+
         details.append(title, date);
+
         fileContainer.append(icon, details);
+
 
         const actions = document.createElement("div");
 
         actions.style.cssText = `
+
             display: flex;
+
             align-items: center;
+
             gap: 10px;
+
         `;
 
+
         const formatBadge = document.createElement("span");
+
         formatBadge.className = "history-format";
+
         formatBadge.textContent = item.format;
+
 
         // DELETE BUTTON
 
         const deleteButton = document.createElement("button");
 
         deleteButton.type = "button";
+
         deleteButton.textContent = "✕";
+
         deleteButton.title = "Delete history item";
 
         deleteButton.setAttribute(
@@ -463,30 +691,44 @@ function renderDownloadHistory() {
         );
 
         deleteButton.style.cssText = `
+
             background: #351b2a;
+
             color: #fca5a5;
+
             border: 1px solid #713b55;
+
             border-radius: 8px;
+
             padding: 7px 11px;
+
             cursor: pointer;
+
         `;
 
+
         deleteButton.addEventListener("click", () => {
+
             deleteHistoryItem(item.id);
+
         });
+
 
         actions.append(formatBadge, deleteButton);
 
         historyItem.append(fileContainer, actions);
 
         historyList.appendChild(historyItem);
+
     });
+
 }
 
 
 // DELETE INDIVIDUAL HISTORY ITEM
 
 function deleteHistoryItem(id) {
+
     const updatedHistory = getDownloadHistory().filter(
         item => item.id !== id
     );
@@ -497,12 +739,14 @@ function deleteHistoryItem(id) {
     );
 
     renderDownloadHistory();
+
 }
 
 
 // CLEAR ALL HISTORY
 
 function clearHistory() {
+
     if (!confirm("Are you sure you want to clear all download history?")) {
         return;
     }
@@ -510,6 +754,7 @@ function clearHistory() {
     localStorage.removeItem(HISTORY_KEY);
 
     renderDownloadHistory();
+
 }
 
 
@@ -518,6 +763,7 @@ function clearHistory() {
 // =============================================
 
 function renderDownloadStats() {
+
     const history = getDownloadHistory();
 
     const total = history.length;
@@ -530,13 +776,29 @@ function renderDownloadStats() {
         item => item.format === "MP3"
     ).length;
 
-    const totalElement = document.getElementById("totalDownloads");
-    const mp4Element = document.getElementById("mp4Downloads");
-    const mp3Element = document.getElementById("mp3Downloads");
 
-    if (totalElement) totalElement.textContent = total;
-    if (mp4Element) mp4Element.textContent = mp4;
-    if (mp3Element) mp3Element.textContent = mp3;
+    const totalElement =
+        document.getElementById("totalDownloads");
+
+    const mp4Element =
+        document.getElementById("mp4Downloads");
+
+    const mp3Element =
+        document.getElementById("mp3Downloads");
+
+
+    if (totalElement) {
+        totalElement.textContent = total;
+    }
+
+    if (mp4Element) {
+        mp4Element.textContent = mp4;
+    }
+
+    if (mp3Element) {
+        mp3Element.textContent = mp3;
+    }
+
 }
 
 
@@ -545,8 +807,11 @@ function renderDownloadStats() {
 const originalRenderHistory = renderDownloadHistory;
 
 renderDownloadHistory = function() {
+
     originalRenderHistory();
+
     renderDownloadStats();
+
 };
 
 
@@ -555,113 +820,192 @@ renderDownloadHistory = function() {
 // =============================================
 
 function initializeMobileNavbar() {
+
     const navbar = document.querySelector(".navbar");
+
     const navLinks = document.querySelector(".nav-links");
+
 
     if (!navbar || !navLinks) return;
 
     if (document.querySelector(".mobile-menu-btn")) return;
 
+
     const menuButton = document.createElement("button");
 
     menuButton.className = "mobile-menu-btn";
+
     menuButton.type = "button";
+
     menuButton.textContent = "☰";
 
-    menuButton.setAttribute("aria-label", "Open navigation menu");
-    menuButton.setAttribute("aria-expanded", "false");
-    menuButton.setAttribute("aria-controls", "vidxNavigation");
+    menuButton.setAttribute(
+        "aria-label",
+        "Open navigation menu"
+    );
+
+    menuButton.setAttribute(
+        "aria-expanded",
+        "false"
+    );
+
+    menuButton.setAttribute(
+        "aria-controls",
+        "vidxNavigation"
+    );
+
 
     navLinks.id = "vidxNavigation";
 
     navbar.appendChild(menuButton);
+
 
     const mobileNavStyle = document.createElement("style");
 
     mobileNavStyle.textContent = `
 
         .mobile-menu-btn {
+
             display: none;
+
             background: linear-gradient(135deg, #7c3aed, #6366f1);
+
             color: white;
+
             border: none;
+
             border-radius: 9px;
+
             padding: 9px 14px;
+
             font-size: 23px;
+
             cursor: pointer;
+
             line-height: 1;
+
             z-index: 1001;
+
         }
+
 
         @media (max-width: 700px) {
 
             .navbar {
+
                 position: sticky;
+
                 top: 0;
+
                 z-index: 1000;
+
             }
 
             .mobile-menu-btn {
+
                 display: block;
+
             }
 
             .nav-links {
+
                 display: none;
+
                 position: absolute;
+
                 top: 100%;
+
                 left: 0;
+
                 right: 0;
+
                 width: 100%;
+
                 flex-direction: column;
+
                 align-items: stretch;
+
                 gap: 0;
+
                 padding: 10px 20px 18px;
+
                 background: #10172a;
+
                 border: 1px solid rgba(167,139,250,0.2);
+
                 border-top: none;
+
                 border-radius: 0 0 15px 15px;
+
                 box-shadow: 0 15px 30px rgba(0,0,0,0.35);
+
             }
 
             .nav-links.active {
+
                 display: flex;
+
                 animation: vidxMenuOpen 0.25s ease;
+
             }
 
             .nav-links a {
+
                 display: block;
+
                 padding: 14px 12px;
+
                 border-bottom: 1px solid rgba(255,255,255,0.07);
+
                 color: #f8fafc;
+
             }
 
             .nav-links a:last-child {
+
                 border-bottom: none;
+
             }
 
             .nav-links a:hover {
+
                 background: rgba(139,92,246,0.12);
+
                 border-radius: 8px;
+
             }
+
         }
 
+
         @keyframes vidxMenuOpen {
+
             from {
+
                 opacity: 0;
+
                 transform: translateY(-8px);
+
             }
 
             to {
+
                 opacity: 1;
+
                 transform: translateY(0);
+
             }
+
         }
 
     `;
 
+
     document.head.appendChild(mobileNavStyle);
 
+
     menuButton.addEventListener("click", () => {
+
         const isOpen = navLinks.classList.toggle("active");
 
         menuButton.textContent = isOpen ? "✕" : "☰";
@@ -673,30 +1017,54 @@ function initializeMobileNavbar() {
 
         menuButton.setAttribute(
             "aria-label",
-            isOpen ? "Close navigation menu" : "Open navigation menu"
+            isOpen
+                ? "Close navigation menu"
+                : "Open navigation menu"
         );
+
     });
+
 
     navLinks.querySelectorAll("a").forEach(link => {
+
         link.addEventListener("click", () => {
+
             navLinks.classList.remove("active");
 
             menuButton.textContent = "☰";
 
-            menuButton.setAttribute("aria-expanded", "false");
-            menuButton.setAttribute("aria-label", "Open navigation menu");
+            menuButton.setAttribute(
+                "aria-expanded",
+                "false"
+            );
+
+            menuButton.setAttribute(
+                "aria-label",
+                "Open navigation menu"
+            );
+
         });
+
     });
+
 
     window.addEventListener("resize", () => {
+
         if (window.innerWidth > 700) {
+
             navLinks.classList.remove("active");
 
             menuButton.textContent = "☰";
 
-            menuButton.setAttribute("aria-expanded", "false");
+            menuButton.setAttribute(
+                "aria-expanded",
+                "false"
+            );
+
         }
+
     });
+
 }
 
 
@@ -705,21 +1073,32 @@ function initializeMobileNavbar() {
 // =============================================
 
 function initializeTheme() {
+
     const navbar = document.querySelector(".navbar");
 
     if (!navbar) return;
+
 
     // PREVENT DUPLICATE THEME BUTTON
 
     if (document.getElementById("themeToggle")) return;
 
+
     const themeButton = document.createElement("button");
 
     themeButton.id = "themeToggle";
+
     themeButton.className = "theme-toggle";
+
     themeButton.type = "button";
+
     themeButton.title = "Toggle theme";
-    themeButton.setAttribute("aria-label", "Toggle color theme");
+
+    themeButton.setAttribute(
+        "aria-label",
+        "Toggle color theme"
+    );
+
 
     // LOAD SAVED THEME
 
@@ -730,7 +1109,9 @@ function initializeTheme() {
     themeButton.textContent =
         savedTheme === "dark" ? "☀️" : "🌙";
 
+
     navbar.appendChild(themeButton);
+
 
     // TOGGLE THEME
 
@@ -742,14 +1123,17 @@ function initializeTheme() {
         const newTheme =
             currentTheme === "dark" ? "light" : "dark";
 
+
         document.body.setAttribute("data-theme", newTheme);
 
         localStorage.setItem(THEME_KEY, newTheme);
+
 
         themeButton.textContent =
             newTheme === "dark" ? "☀️" : "🌙";
 
     });
+
 }
 
 
@@ -758,16 +1142,37 @@ function initializeTheme() {
 // =============================================
 
 function initializeVidX() {
+
+    // Disable download until a video is fetched
+
+    clearVideoPreview();
+
     renderDownloadHistory();
+
     renderDownloadStats();
+
     initializeMobileNavbar();
+
     initializeTheme();
+
 }
 
+
+// =============================================
+// DOM READY
+// =============================================
+
 if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", initializeVidX);
+
+    document.addEventListener(
+        "DOMContentLoaded",
+        initializeVidX
+    );
+
 } else {
+
     initializeVidX();
+
 }
 
 
